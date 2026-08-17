@@ -59,6 +59,39 @@ class ApiClient {
 
   Future<Map<String, dynamic>> dashboard() async =>
       Map<String, dynamic>.from((await dio.get('/dashboard')).data['data']);
+
+  Future<Map<String, dynamic>?> currentGatekeeperShift() async {
+    final data = (await dio.get('/gatekeeper-shifts/current')).data['data'];
+    return data == null ? null : Map<String, dynamic>.from(data);
+  }
+
+  Future<Map<String, dynamic>> gatekeeperShiftAction(String action) async {
+    final data = action == 'start'
+        ? {'access_location_id': 1}
+        : <String, dynamic>{};
+    final response = await dio.post('/gatekeeper-shifts/$action', data: data);
+    return Map<String, dynamic>.from(response.data['data']);
+  }
+
+  Future<List<dynamic>> resource(String name, {String search = ''}) async {
+    final response = await dio.get(
+      '/$name',
+      queryParameters: {'search': search, 'per_page': 100},
+    );
+    return response.data['data'] as List;
+  }
+
+  Future<Map<String, dynamic>> saveResource(
+    String name,
+    Map<String, dynamic> payload, {
+    int? id,
+  }) async {
+    final response = id == null
+        ? await dio.post('/$name', data: payload)
+        : await dio.put('/$name/$id', data: payload);
+    return Map<String, dynamic>.from(response.data['data']);
+  }
+
   Future<List<dynamic>> people(String search) async {
     try {
       final data = (await dio.get(

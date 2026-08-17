@@ -1,6 +1,6 @@
 # Chronus
 
-Sistema híbrido de controle de entrada e saída de pessoas e veículos. O monorepositório contém a API Laravel 12 em `api-laravel`, o aplicativo Flutter em `app-flutter` e a documentação em `docs`.
+Sistema híbrido de controle de entrada e saída de funcionários e veículos, além dos turnos dos porteiros terceirizados. O monorepositório contém a API Laravel 12 em `api-laravel`, o aplicativo Flutter em `app-flutter` e a documentação em `docs`.
 
 ## Requisitos
 
@@ -40,6 +40,8 @@ flutter run --dart-define=API_URL=http://10.0.2.2:8000/api/v1
 ```
 
 No emulador Android, `10.0.2.2` acessa a máquina host. Em dispositivo físico use o IP da rede. No Windows, use `http://127.0.0.1:8000/api/v1`. A fila offline fica em SQLite e o token no armazenamento seguro da plataforma.
+
+O menu **Cadastros** aparece somente para administradores e reúne funcionários, porteiros e empresas terceirizadas. Porteiros operacionais visualizam o controle do próprio turno e as funções necessárias para registrar o fluxo da portaria.
 
 ## Validação e builds
 

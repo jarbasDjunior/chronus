@@ -17,12 +17,12 @@ class AuthController extends Controller
             return response()->json(['message' => 'Credenciais inválidas.'], 422);
         } $u->tokens()->where('created_at', '<', now()->subDays(30))->delete();
 
-        return response()->json(['data' => ['token' => $u->createToken($d['device_name'] ?? 'app')->plainTextToken, 'user' => $u->load('role.permissions')]]);
+        return response()->json(['data' => ['token' => $u->createToken($d['device_name'] ?? 'app')->plainTextToken, 'user' => $u->load('role.permissions', 'gatekeeper.company')]]);
     }
 
     public function me(Request $r)
     {
-        return response()->json(['data' => $r->user()->load('role.permissions')]);
+        return response()->json(['data' => $r->user()->load('role.permissions', 'gatekeeper.company')]);
     }
 
     public function logout(Request $r)

@@ -54,6 +54,11 @@ class User extends Authenticatable
         return $this->belongsTo(Role::class);
     }
 
+    public function gatekeeper()
+    {
+        return $this->hasOne(Gatekeeper::class);
+    }
+
     public function canDo(string $permission): bool
     {
         return $this->role?->slug === 'admin' || ($this->role?->permissions()->where('slug', $permission)->exists() ?? false);

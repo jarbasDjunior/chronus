@@ -3,10 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\AccessLocation;
+use App\Models\Gatekeeper;
+use App\Models\GatekeeperShift;
 use App\Models\Person;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class ChronusApiTest extends TestCase
@@ -30,6 +33,76 @@ class ChronusApiTest extends TestCase
     {
         $u = User::where('username', 'portaria')->first();
         $this->actingAs($u)->postJson('/api/v1/departments', ['name' => 'Restrito'])->assertForbidden();
+        $this->actingAs($u)->getJson('/api/v1/gatekeepers')->assertForbidden();
+        $this->actingAs($u)->getJson('/api/v1/security-companies')->assertForbidden();
+    }
+
+    public function test_gatekeeper_is_not_registered_as_employee(): void
+    {
+        $gatekeeper = Gatekeeper::with('company', 'user')->firstOrFail();
+
+        $this->assertSame('Carlos Lima', $gatekeeper->name);
+        $this->assertSame('portaria', $gatekeeper->user->username);
+        $this->assertNotNull($gatekeeper->company);
+        $this->assertDatabaseMissing('people', ['registration' => 'P001']);
+    }
+
+    public function test_admin_manages_security_companies_and_gatekeepers(): void
+    {
+        $admin = User::where('username', 'admin')->firstOrFail();
+        $company = $this->actingAs($admin)->postJson('/api/v1/security-companies', [
+            'name' => 'Segurança Alfa',
+            'cnpj' => '12.345.678/0001-90',
+            'active' => true,
+        ])->assertCreated()->json('data');
+
+        $this->actingAs($admin)->postJson('/api/v1/gatekeepers', [
+            'security_company_id' => $company['id'],
+            'name' => 'Maria da Silva',
+            'registration' => 'P002',
+            'active' => true,
+        ])->assertCreated()
+            ->assertJsonPath('data.company.name', 'Segurança Alfa');
+
+        $this->assertDatabaseHas('gatekeepers', [
+            'registration' => 'P002',
+            'security_company_id' => $company['id'],
+        ]);
+    }
+
+    public function test_gatekeeper_controls_shift_and_one_hour_break(): void
+    {
+        Carbon::setTestNow('2026-08-17 08:00:00');
+        $operator = User::where('username', 'portaria')->firstOrFail();
+        $location = AccessLocation::firstOrFail();
+
+        $this->actingAs($operator)->postJson('/api/v1/gatekeeper-shifts/start', [
+            'access_location_id' => $location->id,
+        ])->assertCreated()->assertJsonPath('data.status', 'working');
+
+        $this->actingAs($operator)->postJson('/api/v1/gatekeeper-shifts/start', [
+            'access_location_id' => $location->id,
+        ])->assertUnprocessable();
+
+        Carbon::setTestNow('2026-08-17 12:00:00');
+        $this->actingAs($operator)->postJson('/api/v1/gatekeeper-shifts/break/start')
+            ->assertOk()->assertJsonPath('data.status', 'on_break');
+
+        Carbon::setTestNow('2026-08-17 12:59:00');
+        $this->actingAs($operator)->postJson('/api/v1/gatekeeper-shifts/break/end')
+            ->assertUnprocessable()->assertJsonValidationErrors('break');
+
+        Carbon::setTestNow('2026-08-17 13:00:00');
+        $this->actingAs($operator)->postJson('/api/v1/gatekeeper-shifts/break/end')
+            ->assertOk()->assertJsonPath('data.status', 'working');
+
+        Carbon::setTestNow('2026-08-17 17:00:00');
+        $this->actingAs($operator)->postJson('/api/v1/gatekeeper-shifts/finish')
+            ->assertOk()->assertJsonPath('data.status', 'finished');
+
+        $this->assertDatabaseCount('gatekeeper_shifts', 1);
+        $this->assertNotNull(GatekeeperShift::firstOrFail()->ended_at);
+        Carbon::setTestNow();
     }
 
     public function test_person_movement_is_idempotent_and_blocks_duplicate_state(): void

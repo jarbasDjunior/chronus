@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/providers.dart';
+import '../admin/admin_management_page.dart';
 import '../people/employee_details_page.dart';
 
 class HomePage extends ConsumerStatefulWidget {
@@ -28,29 +30,41 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 800;
+    final user = ref.watch(sessionProvider).asData?.value;
+    final isAdmin = user?['role']?['slug'] == 'admin';
     final pages = [
-      DashboardPage(pending: pending, onSync: sync),
+      DashboardPage(pending: pending, onSync: sync, user: user),
       const QuickRegisterPage(),
       const PresencePage(),
       const HistoryPage(),
+      if (isAdmin) const AdminManagementPage(),
     ];
-    final destinations = const [
-      NavigationDestination(
+    final destinations = [
+      const NavigationDestination(
         icon: Icon(Icons.dashboard_outlined),
         selectedIcon: Icon(Icons.dashboard),
         label: 'Início',
       ),
-      NavigationDestination(
+      const NavigationDestination(
         icon: Icon(Icons.how_to_reg_outlined),
         selectedIcon: Icon(Icons.how_to_reg),
         label: 'Registrar',
       ),
-      NavigationDestination(
+      const NavigationDestination(
         icon: Icon(Icons.groups_outlined),
         selectedIcon: Icon(Icons.groups),
         label: 'Presentes',
       ),
-      NavigationDestination(icon: Icon(Icons.history), label: 'Histórico'),
+      const NavigationDestination(
+        icon: Icon(Icons.history),
+        label: 'Histórico',
+      ),
+      if (isAdmin)
+        const NavigationDestination(
+          icon: Icon(Icons.admin_panel_settings_outlined),
+          selectedIcon: Icon(Icons.admin_panel_settings),
+          label: 'Cadastros',
+        ),
     ];
     return Scaffold(
       appBar: AppBar(
@@ -106,9 +120,15 @@ class _HomePageState extends ConsumerState<HomePage> {
 }
 
 class DashboardPage extends ConsumerStatefulWidget {
-  const DashboardPage({super.key, required this.pending, required this.onSync});
+  const DashboardPage({
+    super.key,
+    required this.pending,
+    required this.onSync,
+    required this.user,
+  });
   final int pending;
   final VoidCallback onSync;
+  final Map<String, dynamic>? user;
   @override
   ConsumerState<DashboardPage> createState() => _DashboardPageState();
 }
@@ -156,6 +176,10 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            if (widget.user?['role']?['slug'] == 'operator') ...[
+              const GatekeeperShiftCard(),
+              const SizedBox(height: 20),
+            ],
             Text(
               'Visão geral',
               style: Theme.of(
@@ -220,6 +244,180 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
       },
     ),
   );
+}
+
+class GatekeeperShiftCard extends ConsumerStatefulWidget {
+  const GatekeeperShiftCard({super.key});
+
+  @override
+  ConsumerState<GatekeeperShiftCard> createState() =>
+      _GatekeeperShiftCardState();
+}
+
+class _GatekeeperShiftCardState extends ConsumerState<GatekeeperShiftCard> {
+  late Future<Map<String, dynamic>?> future;
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    future = ref.read(apiProvider).currentGatekeeperShift();
+  }
+
+  Future<void> action(String path) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await ref.read(apiProvider).gatekeeperShiftAction(path);
+      if (mounted) {
+        setState(() => future = ref.read(apiProvider).currentGatekeeperShift());
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Turno atualizado com sucesso.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on DioException catch (error) {
+      final errors = error.response?.data?['errors'] as Map?;
+      final message =
+          errors?.values.firstOrNull?.first ??
+          error.response?.data?['message'] ??
+          'Não foi possível atualizar o turno.';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$message'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  String time(dynamic value) => value == null
+      ? '--:--'
+      : DateFormat('HH:mm').format(DateTime.parse('$value').toLocal());
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: LinearProgressIndicator(),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Card(
+            child: ListTile(
+              leading: const Icon(Icons.badge_outlined),
+              title: const Text('Não foi possível consultar seu turno'),
+              trailing: IconButton(
+                onPressed: () => setState(
+                  () => future = ref.read(apiProvider).currentGatekeeperShift(),
+                ),
+                icon: const Icon(Icons.refresh),
+              ),
+            ),
+          );
+        }
+
+        final shift = snapshot.data;
+        final status = shift?['status'];
+        final onBreak = status == 'on_break';
+        final breakCompleted = shift?['break_ended_at'] != null;
+        final actionPath = shift == null
+            ? 'start'
+            : onBreak
+            ? 'break/end'
+            : breakCompleted
+            ? 'finish'
+            : 'break/start';
+        final actionLabel = shift == null
+            ? 'Iniciar turno'
+            : onBreak
+            ? 'Finalizar intervalo'
+            : breakCompleted
+            ? 'Encerrar turno'
+            : 'Iniciar intervalo';
+        final actionIcon = shift == null
+            ? Icons.play_arrow
+            : onBreak
+            ? Icons.free_breakfast_outlined
+            : breakCompleted
+            ? Icons.stop
+            : Icons.restaurant_outlined;
+
+        return Card(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.badge_outlined),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        shift == null
+                            ? 'Seu turno ainda não começou'
+                            : 'Turno em andamento',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                if (shift != null) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 18,
+                    runSpacing: 8,
+                    children: [
+                      Text('Entrada: ${time(shift['started_at'])}'),
+                      Text(
+                        'Início do almoço: ${time(shift['break_started_at'])}',
+                      ),
+                      Text('Fim do almoço: ${time(shift['break_ended_at'])}'),
+                    ],
+                  ),
+                  if (onBreak) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'O intervalo de almoço deve durar pelo menos 1 hora.',
+                    ),
+                  ],
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: busy ? null : () => action(actionPath),
+                    icon: busy
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(actionIcon),
+                    label: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(actionLabel),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class QuickRegisterPage extends ConsumerStatefulWidget {

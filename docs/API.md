@@ -25,6 +25,21 @@ Base: `/api/v1`. Todas as rotas protegidas usam `Authorization: Bearer <token>` 
 - `GET /reports/pdf` e `GET /reports/xlsx` com os mesmos filtros
 - `GET /audit`
 
+## Porteiros terceirizados e turnos
+
+- CRUD `/security-companies` — empresas prestadoras de segurança
+- CRUD `/gatekeepers` — porteiros separados dos funcionários, com vínculo opcional a um usuário
+- `GET /gatekeeper-shifts/current` — turno aberto do porteiro autenticado
+- `POST /gatekeeper-shifts/start` — inicia o turno; exige `access_location_id`
+- `POST /gatekeeper-shifts/break/start` — inicia o intervalo de almoço
+- `POST /gatekeeper-shifts/break/end` — encerra o intervalo após pelo menos 1 hora
+- `POST /gatekeeper-shifts/finish` — encerra o turno
+- `GET /gatekeeper-shifts` — histórico próprio; administradores e auditores podem consultar todos
+
+Um usuário de portaria precisa estar vinculado a um registro ativo em `gatekeepers`. Não é possível abrir dois turnos simultâneos nem encerrar o turno durante um intervalo aberto.
+
+Os cadastros de empresas terceirizadas e porteiros exigem a permissão `registrations.manage` inclusive para consulta. No aplicativo, o módulo **Cadastros** é exibido exclusivamente para o papel `admin` e permite administrar funcionários, porteiros e terceirizadas.
+
 Exemplo de movimento:
 
 ```json
