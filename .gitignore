@@ -1,0 +1,8 @@
+/api-laravel/.env
+/api-laravel/vendor/
+/api-laravel/database/*.sqlite
+/api-laravel/storage/logs/*.log
+/app-flutter/.dart_tool/
+/app-flutter/build/
+*.apk
+*.aab
