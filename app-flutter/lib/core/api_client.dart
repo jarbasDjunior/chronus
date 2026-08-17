@@ -46,7 +46,33 @@ class ApiClient {
 
   Future<Map<String, dynamic>?> restore() async {
     final raw = await storage.read(key: 'user');
-    return raw == null ? null : Map<String, dynamic>.from(jsonDecode(raw));
+    final token = await storage.read(key: 'token');
+    if (raw == null || token == null) {
+      await storage.deleteAll();
+      return null;
+    }
+
+    late final Map<String, dynamic> cachedUser;
+    try {
+      cachedUser = Map<String, dynamic>.from(jsonDecode(raw));
+    } catch (_) {
+      await storage.deleteAll();
+      return null;
+    }
+
+    try {
+      final response = await dio.get('/auth/me');
+      final user = Map<String, dynamic>.from(response.data['data']);
+      await storage.write(key: 'user', value: jsonEncode(user));
+      return user;
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 401 ||
+          error.response?.statusCode == 403) {
+        await storage.deleteAll();
+        return null;
+      }
+      return cachedUser;
+    }
   }
 
   Future<void> logout() async {

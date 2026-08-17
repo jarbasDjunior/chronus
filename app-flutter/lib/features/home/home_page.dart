@@ -141,16 +141,28 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     future = ref.read(apiProvider).dashboard();
   }
 
+  Future<void> reload() async {
+    setState(() {
+      future = ref.read(apiProvider).dashboard();
+    });
+    await future;
+  }
+
   @override
   Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: () async {
-      setState(() => future = ref.read(apiProvider).dashboard());
-      await future;
-    },
+    onRefresh: reload,
     child: FutureBuilder<Map<String, dynamic>>(
       future: future,
       builder: (c, s) {
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
+        if (s.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (s.hasError) {
+          return _RequestErrorView(
+            message: _requestErrorMessage(s.error),
+            onRetry: reload,
+          );
+        }
         final d = s.data!;
         final cards = [
           (
@@ -270,7 +282,9 @@ class _GatekeeperShiftCardState extends ConsumerState<GatekeeperShiftCard> {
     try {
       await ref.read(apiProvider).gatekeeperShiftAction(path);
       if (mounted) {
-        setState(() => future = ref.read(apiProvider).currentGatekeeperShift());
+        setState(() {
+          future = ref.read(apiProvider).currentGatekeeperShift();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Turno atualizado com sucesso.'),
@@ -317,9 +331,9 @@ class _GatekeeperShiftCardState extends ConsumerState<GatekeeperShiftCard> {
               leading: const Icon(Icons.badge_outlined),
               title: const Text('Não foi possível consultar seu turno'),
               trailing: IconButton(
-                onPressed: () => setState(
-                  () => future = ref.read(apiProvider).currentGatekeeperShift(),
-                ),
+                onPressed: () => setState(() {
+                  future = ref.read(apiProvider).currentGatekeeperShift();
+                }),
                 icon: const Icon(Icons.refresh),
               ),
             ),
@@ -633,18 +647,30 @@ class _PresencePageState extends ConsumerState<PresencePage> {
     return [responses[0].data['data'], responses[1].data['data']];
   }
 
+  Future<void> reload() async {
+    setState(() {
+      future = load();
+    });
+    await future;
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<List<dynamic>>(
     future: future,
     builder: (c, s) {
-      if (!s.hasData) return const Center(child: CircularProgressIndicator());
+      if (s.connectionState != ConnectionState.done) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (s.hasError) {
+        return _RequestErrorView(
+          message: _requestErrorMessage(s.error),
+          onRetry: reload,
+        );
+      }
       final people = s.data![0] as List;
       final vehicles = s.data![1] as List;
       return RefreshIndicator(
-        onRefresh: () async {
-          setState(() => future = load());
-          await future;
-        },
+        onRefresh: reload,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -725,10 +751,19 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
   @override
   void initState() {
     super.initState();
-    f = ref
-        .read(apiProvider)
-        .dio
-        .get('/movements/person', queryParameters: {'per_page': 100});
+    f = load();
+  }
+
+  Future<dynamic> load() => ref
+      .read(apiProvider)
+      .dio
+      .get('/movements/person', queryParameters: {'per_page': 100});
+
+  Future<void> reload() async {
+    setState(() {
+      f = load();
+    });
+    await f;
   }
 
   @override
@@ -736,39 +771,106 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
     return FutureBuilder(
       future: f,
       builder: (c, s) {
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
+        if (s.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (s.hasError) {
+          return _RequestErrorView(
+            message: _requestErrorMessage(s.error),
+            onRetry: reload,
+          );
+        }
         final rows = (s.data!.data['data'] as List);
-        return ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Text(
-              'Histórico',
-              style: Theme.of(
-                c,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...rows.map(
-              (m) => Card(
-                child: ListTile(
-                  leading: Icon(
-                    m['type'] == 'entry' ? Icons.login : Icons.logout,
-                  ),
-                  title: Text(m['person']?['name'] ?? ''),
-                  subtitle: Text(
-                    '${m['location']?['name'] ?? ''} • ${m['operator']?['name'] ?? ''}',
-                  ),
-                  trailing: Text(
-                    DateFormat(
-                      'dd/MM HH:mm',
-                    ).format(DateTime.parse(m['occurred_at']).toLocal()),
+        return RefreshIndicator(
+          onRefresh: reload,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Text(
+                'Histórico',
+                style: Theme.of(c).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...rows.map(
+                (m) => Card(
+                  child: ListTile(
+                    leading: Icon(
+                      m['type'] == 'entry' ? Icons.login : Icons.logout,
+                    ),
+                    title: Text(m['person']?['name'] ?? ''),
+                    subtitle: Text(
+                      '${m['location']?['name'] ?? ''} • ${m['operator']?['name'] ?? ''}',
+                    ),
+                    trailing: Text(
+                      DateFormat(
+                        'dd/MM HH:mm',
+                      ).format(DateTime.parse(m['occurred_at']).toLocal()),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
+    );
+  }
+}
+
+String _requestErrorMessage(Object? error) {
+  if (error is DioException) {
+    if (error.response?.statusCode == 401) {
+      return 'Sua sessão expirou. Saia e entre novamente.';
+    }
+    if (error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout ||
+        error.type == DioExceptionType.connectionError) {
+      return 'Não foi possível conectar à API. Verifique se o servidor está ligado.';
+    }
+  }
+  return 'Não foi possível carregar os dados.';
+}
+
+class _RequestErrorView extends StatelessWidget {
+  const _RequestErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: SizedBox(
+          height: constraints.maxHeight,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.cloud_off_outlined,
+                    size: 52,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(message, textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Tentar novamente'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

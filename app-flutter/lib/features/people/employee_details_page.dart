@@ -34,7 +34,9 @@ class _EmployeeDetailsPageState extends ConsumerState<EmployeeDetailsPage> {
   }
 
   Future<void> reload() async {
-    setState(() => future = ref.read(apiProvider).person(widget.personId));
+    setState(() {
+      future = ref.read(apiProvider).person(widget.personId);
+    });
     await future;
   }
 
